@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0a5f86">
+<title>Camera Barcode Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one narrow column built for a phone held in one hand; scan controls first, the counted stock below. */
+:root {
+  --bg: #eef1f3;
+  --surface: #ffffff;
+  --ink: #15212b;
+  --muted: #5d6b77;
+  --line: #d5dce1;
+  --accent: #0a5f86;
+  --accent-ink: #ffffff;
+  --good: #1b7a45;
+  --good-bg: #e2f3e8;
+  --bad: #a3361f;
+  --bad-bg: #f8e6e1;
+  --bars: #15212b;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f161c; --surface: #18222b; --ink: #e6edf2; --muted: #93a3b0; --line: #2b3946;
+    --accent: #4fb3e0; --accent-ink: #06202d; --good: #6fd39a; --good-bg: #173326;
+    --bad: #f0907a; --bad-bg: #3a1f19; --bars: #15212b; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f161c; --surface: #18222b; --ink: #e6edf2; --muted: #93a3b0; --line: #2b3946;
+  --accent: #4fb3e0; --accent-ink: #06202d; --good: #6fd39a; --good-bg: #173326;
+  --bad: #f0907a; --bad-bg: #3a1f19; --bars: #15212b; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+img { max-width: 100%; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.45;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px 48px;
+}
+.wrap { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 13px; margin: 0; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.totals { display: flex; gap: 18px; font-variant-numeric: tabular-nums; }
+.totals div { display: flex; flex-direction: column; }
+.totals b { font-family: var(--f-mono); font-size: 20px; font-weight: 600; line-height: 1.1; }
+.totals span { font-size: 12px; color: var(--muted); }
+.store-note { font-size: 12px; color: var(--muted); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.scan-btn {
+  display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%;
+  min-height: 72px; border: 0; border-radius: 12px; background: var(--accent); color: var(--accent-ink);
+  font-size: 19px; font-weight: 600;
+}
+.scan-btn:active { transform: translateY(1px); }
+.scan-btn.busy { opacity: 0.6; cursor: progress; pointer-events: none; }
+.scan-btn { cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; }
+.pick-link { align-self: center; font-size: 14px; color: var(--accent); text-decoration: underline; cursor: pointer; padding: 2px 4px; }
+.pick-link { align-self: center; font-size: 14px; color: var(--accent); text-decoration: underline; cursor: pointer; padding: 2px 4px; }
+.pick-link.busy { opacity: 0.6; pointer-events: none; }
+.live { position: relative; border-radius: 12px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; max-width: 100%; }
+.live video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.aim { position: absolute; left: 10%; right: 10%; top: 30%; bottom: 30%; border: 3px solid rgba(255,255,255,.85); border-radius: 10px; box-shadow: 0 0 0 999px rgba(0,0,0,.35); transition: border-color .15s; }
+.aim.hit { border-color: #4ade80; }
+.live-status { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 12px; color: #fff; font-size: 14px; text-align: center; background: linear-gradient(transparent, rgba(0,0,0,.6)); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; clip: rect(0 0 0 0); }
+.scan-btn svg { width: 30px; height: 30px; flex: none; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.qty { display: flex; align-items: center; gap: 10px; }
+.qty label { font-size: 14px; color: var(--muted); }
+.stepper { display: inline-flex; align-items: stretch; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.stepper button { width: 40px; min-height: 40px; border: 0; background: transparent; font-size: 20px; line-height: 1; }
+.stepper input { width: 56px; border: 0; border-inline: 1px solid var(--line); text-align: center; background: transparent; font-family: var(--f-mono); font-size: 16px; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.manual { display: flex; gap: 8px; }
+.manual input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font-family: var(--f-mono); font-size: 16px; }
+.btn { min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 500; }
+.btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn.danger { color: var(--bad); }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+
+.result { border-radius: 12px; padding: 12px 14px; display: flex; gap: 12px; align-items: center; }
+.result.ok { background: var(--good-bg); }
+.result.err { background: var(--bad-bg); color: var(--bad); }
+.result .msg { flex: 1; min-width: 0; }
+.result .msg strong { display: block; font-family: var(--f-mono); font-size: 17px; word-break: break-all; }
+.result .msg span { font-size: 13px; }
+.result.ok .msg span { color: var(--good); }
+
+.list-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.search { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); font-size: 15px; }
+.items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.item { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.item:first-child { border-top: 0; }
+.item.flash { animation: flash 1.2s ease-out; }
+@keyframes flash { from { background: var(--good-bg); } to { background: transparent; } }
+.item .info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.code-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.code { font-family: var(--f-mono); font-size: 16px; font-weight: 500; word-break: break-all; font-variant-numeric: tabular-nums; }
+.fmt { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.bars { background: #ffffff; border-radius: 6px; padding: 4px 6px 0; width: 150px; max-width: 100%; }
+.bars svg { display: block; width: 100%; height: auto; }
+.name { border: 0; border-bottom: 1px dashed var(--line); background: transparent; padding: 2px 0; font-size: 14px; width: 100%; }
+.name::placeholder { color: var(--muted); }
+.item .side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.count { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.remove { border: 0; background: none; color: var(--muted); font-size: 13px; padding: 4px 0; }
+.remove.confirm { color: var(--bad); font-weight: 600; }
+.empty { padding: 28px 18px; text-align: center; color: var(--muted); }
+.empty strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: 12px; display: flex; gap: 14px; align-items: center; max-width: calc(100% - 32px); box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: 14px; z-index: 20; }
+.toast button { background: none; border: 0; color: inherit; font-weight: 700; text-decoration: underline; padding: 4px; }
+.footer { display: flex; gap: 10px; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+@media (prefers-reduced-motion: reduce) { .item.flash { animation: none; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Camera Barcode Scanner</h1>
+      <div class="store-note" id="storeNote">Connecting to saved stock…</div>
+    </div>
+    <div class="totals">
+      <div><b id="tProducts">0</b><span>products</span></div>
+      <div><b id="tUnits">0</b><span>items counted</span></div>
+    </div>
+  </header>
+
+  <section class="panel" aria-label="Scan">
+    <button class="scan-btn" id="liveBtn" type="button">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a2 2 0 0 1 2-2h4l2-3h8l2 3h4a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="16" cy="17" r="5"/></svg>
+      <span id="liveLabel">Start camera</span>
+    </button>
+    <div class="live" id="live" hidden>
+      <video id="video" playsinline muted autoplay></video>
+      <div class="aim" aria-hidden="true"></div>
+      <div class="live-status" id="liveStatus">Hold a barcode inside the frame</div>
+    </div>
+    <label class="pick-link" id="scanBtn" for="photo" tabindex="0" role="button">
+            <span id="scanLabel">Or read a barcode from a photo</span>
+    </label>
+    <input type="file" id="photo" accept="image/*" class="visually-hidden">
+    <div class="row">
+      <div class="qty">
+        <label for="qty">Count each scan as</label>
+        <div class="stepper">
+          <button type="button" id="qtyDown" aria-label="Fewer">−</button>
+          <input id="qty" type="number" inputmode="numeric" min="1" value="1">
+          <button type="button" id="qtyUp" aria-label="More">+</button>
+        </div>
+      </div>
+    </div>
+    <form class="manual" id="manualForm" autocomplete="off">
+      <input id="manual" inputmode="numeric" placeholder="Type a barcode number" aria-label="Barcode number">
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <p class="hint">Tap Start camera and allow camera access. Each barcode counts once while it stays in the frame; move it away and back to count it again. Point the camera straight at the barcode, fill most of the frame and keep it sharp. A Bluetooth or USB barcode scanner also works: tap the number field and scan.</p>
+    <div id="result" hidden></div>
+    <div class="send">
+      <button class="scan-btn" id="copyBtn" type="button" style="background:var(--good);min-height:56px;font-size:17px">Copy codes for the stock list</button>
+      <p class="hint" id="copyMsg">When you finish a shelf: copy the codes, open the stock list in Claude, tap "Paste codes from the camera scanner" and paste.</p>
+      <a class="pick-link" id="openStock" href="https://claude.ai/artifact/8HiAVF8q7tL5MfDNcqGc7z" target="_blank" rel="noopener">Open the stock list in Claude</a>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:10px" aria-label="Counted stock">
+    <div class="list-head">
+      <h2>Scanned, not yet sent</h2>
+      <div class="row">
+        <button class="btn" type="button" id="csvBtn">CSV</button>
+        <button class="btn primary" type="button" id="xlsxBtn">Download spreadsheet</button>
+      </div>
+    </div>
+    <input class="search" id="search" type="search" placeholder="Find a barcode or product name" aria-label="Find">
+    <ul class="items" id="items"></ul>
+    <div class="footer">
+      <span class="hint" id="exportMsg"></span>
+      <button class="btn danger" type="button" id="clearBtn">Start a new count</button>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden><span id="toastText"></span><button type="button" id="undoBtn">Undo</button></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js" defer onerror="var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';document.head.appendChild(s)"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const items = new Map();          // id -> {code, format, count, name, first, last}
+  let store = null;                 // {save(id, item), remove(id)}
+  let lastAddedId = null;
+  let filter = "";
+
+  // ---------- barcode helpers ----------
+  const FORMAT_NAMES = {
+    EAN_13: "EAN-13", EAN_8: "EAN-8", UPC_A: "UPC-A", UPC_E: "UPC-E", CODE_128: "Code 128", CODE_39: "Code 39",
+    CODE_93: "Code 93", ITF: "ITF", CODABAR: "Codabar", QR_CODE: "QR", DATA_MATRIX: "Data Matrix",
+    PDF_417: "PDF417", AZTEC: "Aztec", RSS_14: "GS1 DataBar", RSS_EXPANDED: "GS1 DataBar"
+  };
+  const niceFormat = (f) => FORMAT_NAMES[String(f).toUpperCase()] || String(f);
+  const gtinValid = (s) => {
+    if (!/^\d+$/.test(s)) return false;
+    const d = s.split("").map(Number), check = d.pop();
+    let sum = 0;
+    d.reverse().forEach((n, i) => { sum += n * (i % 2 === 0 ? 3 : 1); });
+    return (10 - (sum % 10)) % 10 === check;
+  };
+  function guessFormat(code) {
+    if (gtinValid(code)) {
+      if (code.length === 13) return "EAN-13";
+      if (code.length === 12) return "UPC-A";
+      if (code.length === 8) return "EAN-8";
+      if (code.length === 14) return "GTIN-14";
+    }
+    return "Typed";
+  }
+  // Same product read as UPC-A (12 digits) or EAN-13 (leading 0) gets one row.
+  function idFor(code) {
+    let key = code;
+    if (/^\d{12}$/.test(code) && gtinValid(code)) key = "0" + code;
+    if (/^[0-9A-Za-z_-]{1,180}$/.test(key)) return key;
+    const bytes = new TextEncoder().encode(code);
+    return "x" + Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("").slice(0, 190);
+  }
+
+  // EAN/UPC bars drawn as SVG so each row shows the code itself.
+  const L = ["0001101","0011001","0010011","0111101","0100011","0110001","0101111","0111011","0110111","0001011"];
+  const R = L.map((p) => p.replace(/./g, (c) => (c === "0" ? "1" : "0")));
+  const G = R.map((p) => p.split("").reverse().join(""));
+  const PARITY = ["LLLLLL","LLGLGG","LLGGLG","LLGGGL","LGLLGG","LGGLLG","LGGGLL","LGLGLG","LGLGGL","LGGLGL"];
+  function eanPattern(code) {
+    if (!gtinValid(code)) return null;
+    if (code.length === 12) code = "0" + code;
+    if (code.length === 13) {
+      const par = PARITY[+code[0]];
+      let s = "101";
+      for (let i = 1; i <= 6; i++) s += (par[i - 1] === "L" ? L : G)[+code[i]];
+      s += "01010";
+      for (let i = 7; i <= 12; i++) s += R[+code[i]];
+      return { bits: s + "101", guards: [0, 1, 2, 45, 46, 47, 48, 49, 92, 93, 94] };
+    }
+    if (code.length === 8) {
+      let s = "101";
+      for (let i = 0; i < 4; i++) s += L[+code[i]];
+      s += "01010";
+      for (let i = 4; i < 8; i++) s += R[+code[i]];
+      return { bits: s + "101", guards: [0, 1, 2, 31, 32, 33, 34, 35, 64, 65, 66] };
+    }
+    return null;
+  }
+  function barsSvg(code) {
+    const p = eanPattern(code);
+    if (!p) return "";
+    const n = p.bits.length, guards = new Set(p.guards);
+    let rects = "";
+    for (let i = 0; i < n; i++) if (p.bits[i] === "1") rects += `<rect x="${i}" y="0" width="1" height="${guards.has(i) ? 34 : 30}"/>`;
+    return `<div class="bars"><svg viewBox="0 0 ${n} 34" preserveAspectRatio="none" fill="#15212b" role="img" aria-label="Barcode ${code}">${rects}</svg></div>`;
+  }
+
+  // ---------- reading barcodes from a photo ----------
+  async function loadImage(file) {
+    if (window.createImageBitmap) {
+      try { return await createImageBitmap(file, { imageOrientation: "from-image" }); } catch (e) {}
+    }
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return img;
+    } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+  }
+  let zxReader = null;
+  function zxing() {
+    if (!window.ZXing) return null;
+    if (!zxReader) {
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A, ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39, ZXing.BarcodeFormat.CODE_93, ZXing.BarcodeFormat.ITF,
+        ZXing.BarcodeFormat.CODABAR, ZXing.BarcodeFormat.QR_CODE, ZXing.BarcodeFormat.DATA_MATRIX
+      ]);
+      zxReader = new ZXing.MultiFormatReader();
+      zxReader.setHints(hints);
+    }
+    return zxReader;
+  }
+  function tryZxing(img, maxSide, rotate) {
+    const reader = zxing();
+    if (!reader) return null;
+    const w0 = img.width, h0 = img.height;
+    const scale = Math.min(1, maxSide / Math.max(w0, h0));
+    const w = Math.round(w0 * scale), h = Math.round(h0 * scale);
+    const c = document.createElement("canvas");
+    c.width = rotate ? h : w; c.height = rotate ? w : h;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (rotate) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
+    ctx.drawImage(img, 0, 0, w, h);
+    try {
+      const src = new ZXing.HTMLCanvasElementLuminanceSource(c);
+      const res = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(src)));
+      return { code: res.getText(), format: niceFormat(ZXing.BarcodeFormat[res.getBarcodeFormat()]) };
+    } catch (e) { return null; } finally { reader.reset(); }
+  }
+  async function decodePhoto(file) {
+    const img = await loadImage(file);
+    if ("BarcodeDetector" in window) {
+      try {
+        const found = await new BarcodeDetector().detect(img);
+        if (found.length) return { code: found[0].rawValue, format: niceFormat(found[0].format) };
+      } catch (e) {}
+    }
+    await new Promise((r) => setTimeout(r, 0));
+    for (const [side, rot] of [[1200, false], [1200, true], [1800, false], [800, false], [1800, true]]) {
+      const r = tryZxing(img, side, rot);
+      if (r) return r;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    return null;
+  }
+
+  // ---------- feedback ----------
+  let audio = null;
+  function beep(ok) {
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = ok ? 1650 : 300; g.gain.value = 0.08;
+      o.connect(g); g.connect(audio.destination);
+      o.start(); o.stop(audio.currentTime + (ok ? 0.09 : 0.25));
+    } catch (e) {}
+    try { navigator.vibrate && navigator.vibrate(ok ? 60 : [80, 60, 80]); } catch (e) {}
+  }
+  function showResult(kind, title, detail) {
+    const box = $("result");
+    box.className = "result " + kind;
+    box.innerHTML = "";
+    const msg = document.createElement("div");
+    msg.className = "msg";
+    const s = document.createElement("strong"); s.textContent = title;
+    const d = document.createElement("span"); d.textContent = detail;
+    msg.append(s, d);
+    box.append(msg);
+    box.hidden = false;
+  }
+  let toastTimer = null, undoAction = null;
+  function toast(text, undo) {
+    $("toastText").textContent = text;
+    undoAction = undo || null;
+    $("undoBtn").hidden = !undo;
+    $("toast").hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { $("toast").hidden = true; undoAction = null; }, 5000);
+  }
+  $("undoBtn").addEventListener("click", () => { const u = undoAction; $("toast").hidden = true; undoAction = null; if (u) u(); });
+
+  // ---------- data ----------
+  const nowIso = () => new Date().toISOString();
+  function addScan(code, format, qty) {
+    code = String(code).trim();
+    if (!code) return;
+    const id = idFor(code);
+    const cur = items.get(id);
+    const t = nowIso();
+    const next = {
+      code: cur ? cur.code : code,
+      format: cur && cur.format !== "Typed" ? cur.format : format,
+      count: (cur ? cur.count : 0) + qty,
+      name: cur ? cur.name : "",
+      first: cur ? cur.first : t,
+      last: t
+    };
+    put(id, next);
+    lastAddedId = id;
+    render();
+    showResult("ok", next.code, `${next.format} · +${qty} · now ${next.count} counted${cur ? "" : " · new product"}`);
+    beep(true);
+    toast(`Added ${qty} × ${next.code}`, () => {
+      if (cur) put(id, cur); else drop(id);
+      render();
+      showResult("ok", next.code, "Scan undone");
+    });
+  }
+  function put(id, item) { items.set(id, item); store && store.save(id, item); }
+  function drop(id) { items.delete(id); store && store.remove(id); }
+  function setCount(id, count) {
+    const cur = items.get(id);
+    if (!cur) return;
+    put(id, { ...cur, count: Math.max(0, count), last: nowIso() });
+    render();
+  }
+
+  // Writes to one record go out one at a time.
+  function queued(fn) {
+    const chains = new Map();
+    return (id, ...args) => {
+      const prev = chains.get(id) || Promise.resolve();
+      const p = prev.then(() => fn(id, ...args)).catch((e) => {
+        console.warn("save failed", e);
+        $("storeNote").textContent = "Could not save the last change. Check your connection and try again.";
+      });
+      chains.set(id, p);
+      return p;
+    };
+  }
+  function localStore() {
+    const KEY = "stock-count-v1";
+    try { const raw = localStorage.getItem(KEY); if (raw) for (const [k, v] of Object.entries(JSON.parse(raw))) items.set(k, v); } catch (e) {}
+    const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(Object.fromEntries(items))); } catch (e) {} };
+    return { save: persist, remove: persist };
+  }
+  async function connect() {
+    let db = null;
+    try { db = window.claude && window.claude.use ? await window.claude.use("db") : null; } catch (e) {}
+    if (!db) {
+      store = localStore();
+      $("storeNote").textContent = "Saved on this phone only. Download the spreadsheet when you finish.";
+      render();
+      return;
+    }
+    const col = db.collection("stock");
+    store = {
+      save: queued((id, item) => col.doc(id).set(item)),
+      remove: queued((id) => col.doc(id).delete())
+    };
+    $("storeNote").textContent = "Saved to your account. Open this page on any device to continue.";
+    col.onSnapshot((snap) => {
+      items.clear();
+      for (const d of snap.docs) {
+        const v = d.data();
+        if (v && v.code) items.set(d.id, { code: v.code, format: v.format || "", count: +v.count || 0, name: v.name || "", first: v.first || "", last: v.last || "" });
+      }
+      render();
+    }, (e) => {
+      $("storeNote").textContent = "Lost the connection to saved stock. Reload the page to reconnect.";
+    });
+  }
+
+  // ---------- rendering ----------
+  function render() {
+    const list = [...items.entries()].sort((a, b) => String(b[1].last).localeCompare(String(a[1].last)));
+    $("tProducts").textContent = list.length.toLocaleString();
+    $("tUnits").textContent = list.reduce((s, [, v]) => s + (v.count || 0), 0).toLocaleString();
+    const ul = $("items");
+    const active = document.activeElement;
+    if (active && active.classList.contains("name") && ul.contains(active)) return; // don't wipe a name being typed
+    const q = filter.toLowerCase();
+    const shown = q ? list.filter(([, v]) => v.code.toLowerCase().includes(q) || (v.name || "").toLowerCase().includes(q)) : list;
+    ul.innerHTML = "";
+    if (!shown.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.innerHTML = q ? "<strong>No match</strong>Try part of the number or the product name."
+        : "<strong>Nothing counted yet</strong>Tap Scan barcode and take a photo of the first product's barcode.";
+      ul.append(li);
+      return;
+    }
+    for (const [id, v] of shown) {
+      const li = document.createElement("li");
+      li.className = "item" + (id === lastAddedId ? " flash" : "");
+      li.innerHTML = `
+        <div class="info">
+          <div class="code-line"><span class="code"></span><span class="fmt"></span></div>
+          ${barsSvg(v.code)}
+          <input class="name" placeholder="Add product name" aria-label="Product name">
+        </div>
+        <div class="side">
+          <div class="stepper">
+            <button type="button" data-d="-1" aria-label="One less">−</button>
+            <input class="count" type="number" inputmode="numeric" min="0" aria-label="Quantity">
+            <button type="button" data-d="1" aria-label="One more">+</button>
+          </div>
+          <button type="button" class="remove">Remove</button>
+        </div>`;
+      li.querySelector(".code").textContent = v.code;
+      li.querySelector(".fmt").textContent = v.format || "Barcode";
+      const name = li.querySelector(".name");
+      name.value = v.name || "";
+      name.addEventListener("change", () => {
+        const cur = items.get(id);
+        if (cur && cur.name !== name.value.trim()) put(id, { ...cur, name: name.value.trim() });
+      });
+      name.addEventListener("blur", () => setTimeout(render, 0));
+      name.addEventListener("keydown", (e) => { if (e.key === "Enter") name.blur(); });
+      const count = li.querySelector(".count");
+      count.value = v.count;
+      count.addEventListener("change", () => setCount(id, parseInt(count.value, 10) || 0));
+      li.querySelectorAll("[data-d]").forEach((b) => b.addEventListener("click", () => setCount(id, (items.get(id)?.count || 0) + +b.dataset.d)));
+      const rm = li.querySelector(".remove");
+      rm.addEventListener("click", () => {
+        if (!rm.classList.contains("confirm")) {
+          rm.classList.add("confirm"); rm.textContent = "Tap again to remove";
+          setTimeout(() => { rm.classList.remove("confirm"); rm.textContent = "Remove"; }, 3000);
+          return;
+        }
+        const old = items.get(id);
+        drop(id); render();
+        toast(`Removed ${v.code}`, () => { put(id, old); render(); });
+      });
+      ul.append(li);
+    }
+    lastAddedId = null;
+  }
+
+  // ---------- export ----------
+  const fmtDate = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso), p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  function rows() {
+    return [...items.values()]
+      .sort((a, b) => String(a.first).localeCompare(String(b.first)))
+      .map((v) => [v.code, v.format, v.count, v.name || "", fmtDate(v.first), fmtDate(v.last)]);
+  }
+  const HEAD = ["Barcode", "Barcode type", "Quantity", "Product name", "First scanned", "Last scanned"];
+  const today = () => fmtDate(nowIso()).slice(0, 10);
+  async function save(filename, data) {
+    const msg = $("exportMsg");
+    if (!items.size) { msg.textContent = "Scan something first, then download."; return; }
+    let dl = null;
+    try { dl = window.claude && window.claude.use ? await window.claude.use("downloads") : null; } catch (e) {}
+    if (!dl) {
+      const blob = new Blob([data()], { type: filename.endsWith(".csv") ? "text/csv" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob); a.download = filename;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      msg.textContent = "Saved " + filename;
+      return;
+    }
+    try {
+      await dl.save({ filename, data: data() });
+      msg.textContent = "Saved " + filename;
+    } catch (e) {
+      msg.textContent = e && e.code === "declined" ? "Download cancelled." : "The download did not work: " + ((e && e.message) || "unknown error");
+    }
+  }
+  $("xlsxBtn").addEventListener("click", () => {
+    if (!window.XLSX) { $("exportMsg").textContent = "The spreadsheet tool is still loading. Try again in a moment."; return; }
+    save(`stock-count-${today()}.xlsx`, () => {
+      const r = rows();
+      const ws = XLSX.utils.aoa_to_sheet([HEAD, ...r]);
+      // Barcodes stay text so leading zeros survive.
+      r.forEach((_, i) => { const c = ws[XLSX.utils.encode_cell({ r: i + 1, c: 0 })]; if (c) { c.t = "s"; c.z = "@"; } });
+      ws["!cols"] = [{ wch: 18 }, { wch: 12 }, { wch: 9 }, { wch: 30 }, { wch: 17 }, { wch: 17 }];
+      ws["!autofilter"] = { ref: `A1:F${r.length + 1}` };
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Stock");
+      return new Uint8Array(XLSX.write(wb, { bookType: "xlsx", type: "array" }));
+    });
+  });
+  $("csvBtn").addEventListener("click", () => {
+    save(`stock-count-${today()}.csv`, () => {
+      const esc = (x) => { const s = String(x); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+      // ="0123" keeps leading zeros when the file is opened in Excel.
+      return "﻿" + [HEAD, ...rows().map((r) => ['="' + r[0].replace(/"/g, '""') + '"', ...r.slice(1)])]
+        .map((r) => r.map((c, i) => (i === 0 && String(c).startsWith('="') ? '"' + String(c).replace(/"/g, '""') + '"' : esc(c))).join(",")).join("\r\n");
+    });
+  });
+
+  // ---------- controls ----------
+  const qty = () => Math.max(1, parseInt($("qty").value, 10) || 1);
+  $("qtyDown").addEventListener("click", () => { $("qty").value = Math.max(1, qty() - 1); });
+  $("qtyUp").addEventListener("click", () => { $("qty").value = qty() + 1; });
+  $("qty").addEventListener("change", () => { $("qty").value = qty(); });
+
+  // The label opens the photo picker natively; script only primes the beep and handles the keyboard.
+  $("scanBtn").addEventListener("click", () => {
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+    $("photo").value = "";
+  });
+  $("scanBtn").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("photo").click(); }
+  });
+  const onPhoto = async (input) => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const btn = $("scanBtn");
+    btn.classList.add("busy"); $("scanLabel").textContent = "Reading barcode…";
+    try {
+      if (!window.ZXing && !("BarcodeDetector" in window)) {
+        beep(false);
+        showResult("err", "Barcode reader not loaded", "Check your internet connection and reload the page. You can type the number below meanwhile.");
+        return;
+      }
+      const r = await decodePhoto(file);
+      if (r) addScan(r.code, r.format, qty());
+      else { beep(false); showResult("err", "No barcode found", "Take the photo again closer, straight on and in good light, or type the number below."); }
+    } catch (e) {
+      beep(false); showResult("err", "Could not read that photo", "Try again, or type the number below.");
+    } finally {
+      btn.classList.remove("busy"); $("scanLabel").textContent = "Or read a barcode from a photo";
+      input.value = "";
+    }
+  };
+  $("photo").addEventListener("change", () => onPhoto($("photo")));
+  $("manualForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("manual").value.trim();
+    if (!v) return;
+    addScan(v, guessFormat(v), qty());
+    $("manual").value = "";
+  });
+  $("search").addEventListener("input", (e) => { filter = e.target.value.trim(); render(); });
+
+  // ---------- hand the scans over to the stock list ----------
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.append(ta); ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch (e) { return false; }
+  }
+  $("copyBtn").addEventListener("click", async () => {
+    const msg = $("copyMsg");
+    const list = [...items.values()].filter((v) => v.count > 0);
+    if (!list.length) { msg.textContent = "Nothing scanned yet."; return; }
+    const batch = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const text = ["#batch " + batch, ...list.map((v) => v.code + ";" + v.count)].join("\n");
+    const units = list.reduce((s, v) => s + v.count, 0);
+    if (await copyText(text)) {
+      msg.textContent = `Copied ${units} item${units === 1 ? "" : "s"} across ${list.length} product${list.length === 1 ? "" : "s"}. Paste them in the stock list, then tap "Start a new count" here so nothing is counted twice.`;
+      beep(true);
+    } else {
+      msg.textContent = "Copying was blocked by the browser. Download the CSV instead, or try again.";
+      beep(false);
+    }
+  });
+
+  const clearBtn = $("clearBtn");
+  clearBtn.addEventListener("click", async () => {
+    if (!items.size) return;
+    if (!clearBtn.dataset.armed) {
+      clearBtn.dataset.armed = "1";
+      clearBtn.textContent = `Delete all ${items.size} products? Tap again`;
+      setTimeout(() => { delete clearBtn.dataset.armed; clearBtn.textContent = "Start a new count"; }, 4000);
+      return;
+    }
+    delete clearBtn.dataset.armed;
+    clearBtn.textContent = "Start a new count";
+    for (const id of [...items.keys()]) drop(id);
+    render();
+    showResult("ok", "New count started", "The previous list was deleted. Download it first next time if you want to keep it.");
+  });
+
+  // ---------- live camera ----------
+  let stream = null, loopTimer = null, detector = null;
+  let lastCode = "", lastSeen = 0;
+  const frame = document.createElement("canvas");
+  function readFrame(video) {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw) return null;
+    // Read the area inside the aiming frame (80% wide, 40% high, centred).
+    const sw = Math.round(vw * 0.8), sh = Math.round(vh * 0.4), sx = Math.round(vw * 0.1), sy = Math.round(vh * 0.3);
+    const scale = Math.min(1, 1000 / sw);
+    frame.width = Math.round(sw * scale); frame.height = Math.round(sh * scale);
+    frame.getContext("2d", { willReadFrequently: true }).drawImage(video, sx, sy, sw, sh, 0, 0, frame.width, frame.height);
+    return frame;
+  }
+  async function detect(video) {
+    if (detector) {
+      try { const f = await detector.detect(video); if (f.length) return { code: f[0].rawValue, format: niceFormat(f[0].format) }; } catch (e) {}
+      return null;
+    }
+    const c = readFrame(video);
+    if (!c) return null;
+    const reader = zxing();
+    if (!reader) return null;
+    try {
+      const res = reader.decode(new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(new ZXing.HTMLCanvasElementLuminanceSource(c))));
+      return { code: res.getText(), format: niceFormat(ZXing.BarcodeFormat[res.getBarcodeFormat()]) };
+    } catch (e) { return null; } finally { reader.reset(); }
+  }
+  async function tick() {
+    const video = $("video");
+    const r = await detect(video);
+    const now = Date.now();
+    if (r) {
+      // Count once per appearance: the same code must be out of view for 1.5 s before it counts again.
+      if (r.code !== lastCode || now - lastSeen > 1500) {
+        addScan(r.code, r.format, qty());
+        document.querySelector(".aim").classList.add("hit");
+        setTimeout(() => document.querySelector(".aim").classList.remove("hit"), 400);
+        $("liveStatus").textContent = "Counted " + r.code;
+      }
+      lastCode = r.code; lastSeen = now;
+    }
+    if (stream) loopTimer = setTimeout(tick, detector ? 120 : 200);
+  }
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showResult("err", "Camera not available", "This browser can't open the camera. Open the page in Chrome or Safari.");
+      return;
+    }
+    try {
+      try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); audio.resume(); } catch (e) {}
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    } catch (e) {
+      stream = null;
+      showResult("err", "Camera blocked", "Allow camera access for this page in your browser settings, then tap Start camera again.");
+      return;
+    }
+    if ("BarcodeDetector" in window) {
+      try {
+        const formats = await BarcodeDetector.getSupportedFormats();
+        if (formats.length) detector = new BarcodeDetector({ formats });
+      } catch (e) { detector = null; }
+    }
+    if (!detector && !window.ZXing) {
+      showResult("err", "Barcode reader not loaded", "Check your internet connection and reload the page.");
+    }
+    const video = $("video");
+    video.srcObject = stream;
+    $("live").hidden = false;
+    $("liveLabel").textContent = "Stop camera";
+    try { await video.play(); } catch (e) {}
+    lastCode = ""; lastSeen = 0;
+    tick();
+  }
+  function stopCamera() {
+    clearTimeout(loopTimer);
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    $("video").srcObject = null;
+    $("live").hidden = true;
+    $("liveLabel").textContent = "Start camera";
+  }
+  $("liveBtn").addEventListener("click", () => (stream ? stopCamera() : startCamera()));
+  document.addEventListener("visibilitychange", () => { if (document.hidden && stream) stopCamera(); });
+
+  render();
+  connect();
+})();
+</script>
+
+</body>
+</html>
