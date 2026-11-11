@@ -175,6 +175,11 @@ header { display: flex; align-items: flex-end; justify-content: space-between; g
     </form>
     <p class="hint">Tap Start camera and allow camera access. Each barcode counts once while it stays in the frame; move it away and back to count it again. Point the camera straight at the barcode, fill most of the frame and keep it sharp. A Bluetooth or USB barcode scanner also works: tap the number field and scan.</p>
     <div id="result" hidden></div>
+    <div id="openHelp" class="row" hidden>
+      <a class="btn primary" id="openChrome" style="display:inline-flex;align-items:center;text-decoration:none" href="intent://robje2-ops.github.io/Voorraadscanner/#Intent;scheme=https;package=com.android.chrome;end">Open in Chrome</a>
+      <button class="btn" type="button" id="copyLink">Kopieer link</button>
+      <span class="hint" id="copyLinkMsg"></span>
+    </div>
     <div class="send">
       <button class="scan-btn" id="copyBtn" type="button" style="background:var(--good);min-height:56px;font-size:17px">Copy codes for the stock list</button>
       <p class="hint" id="copyMsg">When you finish a shelf: copy the codes, open the stock list in Claude, tap "Paste codes from the camera scanner" and paste.</p>
@@ -714,7 +719,7 @@ header { display: flex; align-items: flex-end; justify-content: space-between; g
   }
   async function startCamera() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showResult("err", "Camera not available", "This browser can't open the camera. Open the page in Chrome or Safari.");
+      showResult("err", "Open deze pagina in Chrome", "Hier kan de camera niet open. Tik op 'Open in Chrome' of kopieer de link en plak hem in Chrome (of Safari op een iPhone)."); $("openHelp").hidden = false;
       return;
     }
     try {
@@ -722,7 +727,23 @@ header { display: flex; align-items: flex-end; justify-content: space-between; g
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     } catch (e) {
       stream = null;
-      showResult("err", "Camera blocked", "Allow camera access for this page in your browser settings, then tap Start camera again.");
+      const n = (e && e.name) || "Error";
+      const inApp = /; wv\)|\bwv\b|Claude|FBAN|FBAV|Instagram/i.test(navigator.userAgent) || (/iPhone|iPad/.test(navigator.userAgent) && !/Safari/.test(navigator.userAgent));
+      let title = "Camera geblokkeerd", detail;
+      if (inApp) {
+        title = "Open deze pagina in Chrome";
+        detail = "Je bekijkt deze pagina binnen een app, en daar mag de camera niet open. Tik hieronder op 'Open in Chrome', of kopieer de link en plak hem in Chrome (of Safari op een iPhone).";
+      } else if (n === "NotAllowedError" || n === "SecurityError") {
+        detail = "De camera is niet toegestaan voor deze pagina. Tik op het slotje of het schuifjes-icoon links van het webadres, kies Machtigingen, zet Camera op Toestaan en tik opnieuw op Start camera. Controleer ook bij de instellingen van je telefoon dat Chrome de camera mag gebruiken.";
+      } else if (n === "NotFoundError" || n === "OverconstrainedError") {
+        detail = "Er is geen camera gevonden op dit apparaat.";
+      } else if (n === "NotReadableError" || n === "AbortError") {
+        detail = "De camera is in gebruik door een andere app. Sluit de camera-app of andere apps die de camera gebruiken en probeer het opnieuw.";
+      } else {
+        detail = "De camera kon niet worden geopend.";
+      }
+      showResult("err", title, detail + " (code: " + n + ")");
+      $("openHelp").hidden = false;
       return;
     }
     if ("BarcodeDetector" in window) {
@@ -750,6 +771,12 @@ header { display: flex; align-items: flex-end; justify-content: space-between; g
     $("live").hidden = true;
     $("liveLabel").textContent = "Start camera";
   }
+  $("copyLink").addEventListener("click", async () => {
+    const ok = await copyText(location.href);
+    $("copyLinkMsg").textContent = ok ? "Link gekopieerd. Plak hem in de adresbalk van Chrome." : location.href;
+  });
+  // Camera access only works on a secure page opened directly in a browser.
+  if (!window.isSecureContext || !navigator.mediaDevices) $("openHelp").hidden = false;
   $("liveBtn").addEventListener("click", () => (stream ? stopCamera() : startCamera()));
   document.addEventListener("visibilitychange", () => { if (document.hidden && stream) stopCamera(); });
 
